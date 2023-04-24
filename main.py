@@ -28,10 +28,16 @@ COMPLETIONS_API_PARAMS = {
     # "max_tokens": COMPLETIONS_MODEL_MAX_TOKENS, # testing no max tokens limit, hoping that as long as i can be below the context length, the api can figure out num tokens to return
 }
 
+def get_token_count(text):
+  return len(ENCODING.encode(text))
+
 # read the json file
 with open(PATH_TO_JSON) as f:
   data = json.load(f)
 messages = data['messages']
+
+def build_message(message):
+  return "[" + str(message["message_id"]) + "] " + "[" + message["message_timestamp"] + "] " + "[AUTHOR: " + message["message_author"] + "] " + message["message_content"] + '\n\n'
 
 # The idea is that we want to get messages over a given time period.
 # The user will select using the following options:
@@ -73,20 +79,24 @@ def get_messages(messages, time_period=None):
   messages = [message for message in messages if convert_message_timestamp_to_datetime(message['timestamp']).timestamp() > time_period_date.timestamp()]
 
   messages_contents = []
-  for message in messages:
+  for index, message in enumerate(messages):
     if message['content']:
-      messages_contents.append({"message_content": message['content'], "message_token_count": len(ENCODING.encode(message['content']))}) # TODO: can add author info here
+      messages_contents.append(
+        {
+          "message_content": message['content'].replace('\n', '<br>'),
+          "message_token_count": len(ENCODING.encode(message['content'])),
+          "message_author": message['author']['name'], 
+          "message_timestamp": message['timestamp'], 
+          "message_id": index,
+          }) # TODO: can add author info here
   return messages_contents 
 
 # options for time_period are: "24 hours", "3 days", "week", "month"
-all_messages = get_messages(messages, 'week')
+all_messages = get_messages(messages, '24 hours')
 
 prompts = {
-  0: "The following are messages from a Discord chat. Please summarize the following messages by categorizing the messages into high level topic. Then output those topics as a list of bullet points. Each bullet points should have the name of the topic, a short 1-sentence description, and the number of messages related to that topic in parentheses. For bullets that have 3 or more related messages, please give a more detailed summary in the bullet.\n\n",
-  1: "The following messages are from a Discord chat. Please summarize the following messages in a short paragraph that gives a high level overview of the topics discussed.\n\n",
-  2: "The following messages are from a Discord chat. Please give me a detailed summary of everything that was discussed. In a separate paragraph, please list all the links that were shared along with a summary of what the links contain if possible.\n\n",
-  3: "The following messages are from a Discord chat. Please summarize the following messages in a detailed paragraph.\n\n",
-  4: "The following messages are from a Discord chat. Please summarize the following messages in an essay that details the topics covered.\n\n"
+  16: "I have a series of messages formatted as follows:\n\n[message ID] [timestamp] [AUTHOR: username] Message content with line breaks represented by <br>.\n\nHere are the messages:\n\n<Insert Discord messages here>\n\nPlease carefully analyze the messages and generate a comprehensive list of topics discussed in these messages. Make sure to include as many relevant topics as possible, even if they are only mentioned briefly or in a single message. Your goal is to provide an exhaustive overview of the subjects discussed in the conversation."
+
 }
 
 token_count = 0
@@ -94,26 +104,44 @@ prompt_messages = ''
 message_summaries = []
 # TODO: probably need to customize this to appropriate number of tokens, 2500 is the max amount we target for the prompt (this doesn't include the "role", "content" and other stuff openai adds to the prompt); the thought is this is good enough for the prompt, want to leave ~ 1500 tokens for the actual summary
 MAX_TOKEN_COUNT = 2500
+# MAX_TOKEN_COUNT = 1000
 
 def handle_prompt_and_response(prompt_messages):
-    prompt = prompts[4] + prompt_messages 
-    print("*" * 100)
-    print("PROMPT")
-    print(prompt)
-    print("Prompt Num Tokens: " + str(len(ENCODING.encode(prompt))))
-    print("*" * 100)
-    print('\n')
+  # prompt = prompts[13] + prompt_messages 
+  prompt = prompts[16].replace("<Insert Discord messages here>", prompt_messages)
+  print("*" * 100)
+  print("PROMPT")
+  print(prompt)
+  print("Prompt Num Tokens: " + str(len(ENCODING.encode(prompt))))
+  print("*" * 100)
+  print('\n')
 
-    response = openai.ChatCompletion.create(
-      messages=[{"role": "user", "content": prompt}], 
-      **COMPLETIONS_API_PARAMS)
+  response = openai.ChatCompletion.create(
+    messages=[{"role": "user", "content": prompt}], 
+    **COMPLETIONS_API_PARAMS)
 
-    message_summaries.append(response)
-    return None
+  message_summaries.append(response)
+  return None
+
+def get_model_response(prompt):
+  print("*" * 100)
+  print("PROMPT")
+  print(prompt)
+  print("Prompt Num Tokens: " + str(len(ENCODING.encode(prompt))))
+  print("*" * 100)
+  print('\n')
+
+  response = openai.ChatCompletion.create(
+    messages=[{"role": "user", "content": prompt}], 
+    **COMPLETIONS_API_PARAMS)
+
+  return response 
 
 # create prompts and send to openai
 for index, message in enumerate(all_messages):
-  prompt_messages += message["message_content"] + '\n'
+  # prompt_messages += message["message_timestamp"] + ": " +  message["message_content"] + ' ' + 'AUTHOR: ' + message["message_author"] + '\n\n'
+  prompt_messages += build_message(message) 
+  #TODO: shouldn't i just compute the message token count here?
   token_count += message["message_token_count"]
 
   if (index == len(all_messages) - 1):
@@ -131,6 +159,54 @@ for index, message in enumerate(all_messages):
 print("MESSAGE SUMMARIES")
 print(message_summaries)
 
+# the purpose of this section is to have the model assign a topic (from the list of topics already generated) to each message 
+SHOULD_RUN_TOPIC_CAT = True
+
+if(SHOULD_RUN_TOPIC_CAT):
+
+  # we choose 2000 because we assume the completion tokens will be about the same as the prompt tokens assuming that the output contains each message and associated category; therefore we allot 2000 for the prompt tokens and leave 2000 for completion tokens which comes out to 4000 which is just under the limit for the model
+  MAX_PROMPT_TOKEN_COUNT_FOR_TOPIC_CAT = 3000
+
+  BASE_PROMPT="I have a series of messages formatted as follows:\n\n[message ID] [timestamp] [AUTHOR: username] Message content with line breaks represented by <br>\n\nHere are the messages:\n\n<Insert Discord messages here>\n\nPlease categorize each message by the following topics:\n\n<Insert topics here>\n\nIt is crucial to categorize every single message without exception. If a message doesn't seem to apply to any of the topics or is difficult to categorize, you must place it under \"Miscellaneous\". A message can be assigned to multiple topics if applicable.\n\nFormat the message categorization output as follows: \n- Do not use numbering for the topics.\n- Write the topic name followed by a colon.\n- After the colon, write ' Message IDs' followed by the list of message IDs separated by commas.\n- Start a new line for each topic.\n\nExample Output:\nBitcoin and cryptocurrency: Message IDs 1, 4, 7\nLiving in the USA: Message IDs 2, 6\nMiscellaneous: Message IDs 3, 5, 8"
+
+
+  TOPICS = message_summaries[0]["choices"][0]["message"]["content"]
+
+  BASE_AND_TOPICS_PROMPT = BASE_PROMPT.replace("<Insert topics here>", TOPICS)
+
+  BASE_AND_TOPICS_PROMPT_TOKEN_COUNT = get_token_count(text=BASE_AND_TOPICS_PROMPT)
+
+  # if this token count is greater than the max of the model throw an error
+  if (BASE_AND_TOPICS_PROMPT_TOKEN_COUNT > COMPLETIONS_MODEL_MAX_TOKENS):
+    raise ValueError("BASE_AND_TOPICS_PROMPT_TOKEN_COUNT > COMPLETIONS_MODEL_MAX_TOKENS. This is even before we add the discord messages! Obviously this shouldn't happen. Investigate!")
+
+  discord_messages_for_prompt = ''
+  for index, message in enumerate(all_messages):
+    single_message = build_message(message)
+    discord_messages_for_prompt += single_message 
+
+    # this condition means that we have reached the end of the messages and we need to handle the last prompt
+    if (index == len(all_messages) - 1):
+      final_prompt = BASE_AND_TOPICS_PROMPT.replace("<Insert Discord messages here>", discord_messages_for_prompt)
+      resp = get_model_response(prompt=final_prompt)
+      print("RESPONSE")
+      print(resp)
+      continue
+
+    next_single_message = build_message(all_messages[index + 1])
+    check_max_discord_messages_for_prompt = discord_messages_for_prompt + next_single_message
+    check_max_discord_messages_for_prompt_token_count = get_token_count(text=check_max_discord_messages_for_prompt)
+
+    if (BASE_AND_TOPICS_PROMPT_TOKEN_COUNT + check_max_discord_messages_for_prompt_token_count > MAX_PROMPT_TOKEN_COUNT_FOR_TOPIC_CAT):
+      final_prompt = BASE_AND_TOPICS_PROMPT.replace("<Insert Discord messages here>", discord_messages_for_prompt)
+      discord_messages_for_prompt = ''
+      resp = get_model_response(prompt=final_prompt)
+      print("RESPONSE")
+      print(resp)
+      continue
+
+exit()
+
 # TODO / NOTE: i'm not accounting for possibility of all the message summaries being too large to fit in one prompt, should probs throw an error if that happens
 if (len(message_summaries) > 1):
   # concatenate all the summaries
@@ -140,7 +216,9 @@ if (len(message_summaries) > 1):
 
   # prompt = "What follows is a list of summaries of messages from a Discord chat. Please summarize the following summaries in a paragraph that gives a high level overview of the topics discussed.\n\n" + all_summaries
   # prompt = "What follows is a list of summaries of messages from The Network State Dicord chat over the course of the last week. Please synthesize the following summaries into a single essay describing each of the summaries in turn. Please err on the side of being too long instead of losing detail.\n\n" + all_summaries
-  prompt = "What follows is a list of summaries of messages from The Network State Dicord chat. Please synthesize the following summaries into a single essay summary covering everything. This essay summary is meant to be an update that members can read instead of checking the Discord chat on a daily basis. It should read like an update or briefing.\n\n" + all_summaries
+  # prompt = "What follows is a list of summaries of messages from The Network State Dicord chat. Please synthesize the following summaries into a single essay summary covering everything. This essay summary is meant to be an update that members can read instead of checking the Discord chat on a daily basis. It should read like an update or briefing.\n\n" + all_summaries # this is an essay summary, but want to try the bullet version
+  # prompt = "What follows is a series of bulleted lists which contain topics discussed in The Network State Dicord chat. A list of authors who participated in the discussion of the topic are listed in parentheses next to each topic. Please synthesize the the bulleted lists into a single list.\n\n" + all_summaries # this doesn't seem to compress the list at all, it just smooshes it all together
+  prompt = "What follows is a series of bulleted lists which contain topics discussed in The Network State Dicord chat. A list of authors who participated in the discussion of the topic are listed in parentheses next to each topic. Please synthesize/compress the bulleted lists into a single list. If there are related topics, please summarize them as a single topic. Please put the list of authors who participated in the discussion of the topic in parentheses next to each topic in the final list.\n\n" + all_summaries # this doesn't seem to compress the list at all, it just smooshes it all together
 
   response = openai.ChatCompletion.create(
     messages=[{"role": "user", "content": prompt}], 
