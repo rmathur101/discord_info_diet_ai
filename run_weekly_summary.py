@@ -80,18 +80,20 @@ def gen_and_get_discord_export(export_path, discord_token, channel_key, output_t
 
     return output_file, output_type
 
-# create discord export
-file_name, file_type = gen_and_get_discord_export(DISCORD_EXPORT_DIR_PATH, DISCORD_TOKEN_ID, 'proof_of_building', 'htmldark', get_export_after_str(), None, False)
+# gen and load discord exports for all channels
+for channel_key in CHANNEL_AND_THREAD_IDS:
+    # create discord export
+    file_name, file_type = gen_and_get_discord_export(DISCORD_EXPORT_DIR_PATH, DISCORD_TOKEN_ID, channel_key, 'json', get_export_after_str(), None, False)
 
-# get file path
-file_path = DISCORD_EXPORT_DIR_PATH_RAW + '/' + file_name
-print(f"\nDISCORD EXPORT FILE PATH: {file_path}\n")
+    # read file as json if json
+    if file_type == 'json':
+        with open(DISCORD_EXPORT_DIR_PATH_RAW + '/' + file_name)  as f:
+            data = json.load(f)
+        print(data)
 
-# read file as json if json
-if file_type == 'json':
-    with open(file_path)  as f:
-        data = json.load(f)
-    print(data)
+
+
+
 
 
 
