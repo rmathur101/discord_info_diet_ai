@@ -80,6 +80,9 @@ def gen_and_get_discord_export(export_path, discord_token, channel_key, output_t
 
     return output_file, output_type
 
+# dict of channel key to message data
+channel_key_to_message_data = {}
+
 # gen and load discord exports for all channels
 for channel_key in CHANNEL_AND_THREAD_IDS:
     # create discord export
@@ -89,7 +92,9 @@ for channel_key in CHANNEL_AND_THREAD_IDS:
     if file_type == 'json':
         with open(DISCORD_EXPORT_DIR_PATH_RAW + '/' + file_name)  as f:
             data = json.load(f)
-        print(data)
+            channel_key_to_message_data[channel_key] = data
+
+print(channel_key_to_message_data)
 
 
 
