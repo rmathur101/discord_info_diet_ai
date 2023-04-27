@@ -48,7 +48,16 @@ def get_export_after_str():
     last_week_str = last_week.strftime('%Y-%m-%d')
     return last_week_str
 
-def gen_and_get_discord_export(export_path, discord_token, channel_key, output_type, after):
+# get today's date as string
+def get_today_str():
+    today = date.today()
+    today_str = today.strftime('%Y-%m-%d')
+    return today_str
+
+def check_file_exists(file_path):
+    return os.path.isfile(file_path)
+
+def gen_and_get_discord_export(export_path, discord_token, channel_key, output_type, after, before=None, force_file_regen=False):
     # get channel id
     channel_id = CHANNEL_AND_THREAD_IDS[channel_key]['id']
 
@@ -56,20 +65,26 @@ def gen_and_get_discord_export(export_path, discord_token, channel_key, output_t
     output_ext = 'html' if output_type == 'htmldark' else 'json'
 
     # build output file
-    output_file = f"export_{channel_key}_after_{after}.{output_ext}"
+    output_file = f"export_{channel_key}_after_{after}_created_on_{get_today_str()}.{output_ext}"
+
+    # if file exists and not force_file_regen, return
+    file_path = DISCORD_EXPORT_DIR_PATH_RAW + '/' + output_file 
+    if (check_file_exists(file_path) and not force_file_regen):
+        print(f"\nFILE EXISTS: {file_path}\n")
+        return output_file, output_type
 
     # generate discord export
     docker_command = f"docker run --rm -v {export_path}:/out tyrrrz/discordchatexporter:stable export -t {discord_token} -c {channel_id} -f {output_type} -o {output_file} --after {after}"
-    print(f"\nDOCKER COMMAND: {docker_command}\n")
+    print(f"\nCREATING NEW FILE! FORCED: {force_file_regen}. DOCKER COMMAND:\n{docker_command}\n")
     subprocess.run(docker_command, shell=True)
 
     return output_file, output_type
 
 # create discord export
-file_name, file_type = gen_and_get_discord_export(DISCORD_EXPORT_DIR_PATH, DISCORD_TOKEN_ID, 'proof_of_building', 'htmldark', get_export_after_str())
+file_name, file_type = gen_and_get_discord_export(DISCORD_EXPORT_DIR_PATH, DISCORD_TOKEN_ID, 'proof_of_building', 'htmldark', get_export_after_str(), None, False)
 
 # get file path
-file_path = file_path = DISCORD_EXPORT_DIR_PATH_RAW + '/' + file_name
+file_path = DISCORD_EXPORT_DIR_PATH_RAW + '/' + file_name
 print(f"\nDISCORD EXPORT FILE PATH: {file_path}\n")
 
 # read file as json if json
