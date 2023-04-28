@@ -9,6 +9,7 @@ from datetime import datetime, date, timedelta
 import subprocess
 from pathlib import Path
 import re
+from helpers import get_token_count, transform_message_data, build_message_str
 load_dotenv()
 
 # constants 
@@ -40,6 +41,23 @@ CHANNEL_AND_THREAD_IDS = {
     'tns_nostr': {
         'id': '1073100882700406824'
     }
+}
+
+# set my API key
+openai.api_key = os.getenv("OPENAI_API_KEY")
+
+# openai constants
+COMPLETIONS_MODEL = os.getenv("COMPLETIONS_MODEL")
+ENCODING = tiktoken.get_encoding("cl100k_base")
+
+def prompt_get_topics_from_msgs(discord_msgs_str):
+    prompt = "I have a series of messages formatted as follows:\n\n[message ID] [timestamp] [AUTHOR: username] Message content with line breaks represented by <br>.\n\nHere are the messages:\n\n<Insert Discord messages here>\n\nPlease carefully analyze the messages and generate a comprehensive list of topics discussed in these messages. Make sure to include as many relevant topics as possible, even if they are only mentioned briefly or in a single message. Your goal is to provide an exhaustive overview of the subjects discussed in the conversation."
+    # replace <Insert Discord messages here> with actual messages
+    prompt = prompt.replace("<Insert Discord messages here>", discord_msgs_str)
+    return prompt
+
+PROMPTS = {
+    "get_topics_from_msgs": prompt_get_topics_from_msgs
 }
 
 # get date a week ago from today
@@ -118,20 +136,37 @@ for channel_key in CHANNEL_AND_THREAD_IDS:
         False
     )
 
-    # end program (just for testing)
-    sys.exit()
-
     # read file as json if json
     if file_type == 'json':
         with open(DISCORD_EXPORT_DIR_PATH_RAW + '/' + file_name)  as f:
             data = json.load(f)
             channel_key_to_message_data[channel_key] = data
+            print(f"\nCHANNEL KEY: {channel_key}\nDATA:\n{data}\n")
+    
+    # calling break will do it for one channel for testing
+    break
 
-print(channel_key_to_message_data)
+# iterate through channel key to message data
+MAX_PROMPT_TOKENS = 2500
+for channel_key in channel_key_to_message_data:
+    # get message data
+    message_data = channel_key_to_message_data[channel_key]
+    messages_structured = transform_message_data(message_data)
 
+    # this is what we will insert into the prompt    
+    insert_discord_msgs_str = ""
+    insert_discord_msgs_str_token_count = 0
 
+    # iterate through messages_structured
+    for message_structured in messages_structured:
+        message_str, tokens_count = build_message_str(message_structured)
 
+        # if we are over the token limit, break
+        if insert_discord_msgs_str_token_count + tokens_count > MAX_PROMPT_TOKENS:
+            break
+        else:
+            insert_discord_msgs_str += message_str
+            insert_discord_msgs_str_token_count += tokens_count
 
-
-
+    # response = openai.ChatCompletion.create(messages=[{"role": "user", "content": prompt}], **COMPLETIONS_API_PARAMS)
 
