@@ -81,15 +81,19 @@ def check_file_exists(file_path):
 
 # if file matches the following we don't want to recreate it, note that it's ok if the files were created on different dates (i.e. created_on doesn't have to match)
 def check_matching_file_exists_ignore_creation_date(dir, file_name):
+    # check if file exists with same created_on date first
+    if check_file_exists(dir + '/' + file_name):
+        return True, file_name
+
     pattern = r"_created_on_\d{4}-\d{2}-\d{2}"
     file_name_adjusted = re.sub(pattern, "", file_name)
 
     for check_file in os.listdir(dir):
         check_file_adjusted = re.sub(pattern, "", check_file)
         if check_file_adjusted == file_name_adjusted:
-            return True
+            return True, check_file
 
-    return False
+    return False, None
 
 def gen_and_get_discord_export(export_path, discord_token, channel_key, output_type, after, before, force_file_regen=False):
     # print arguments
@@ -106,9 +110,10 @@ def gen_and_get_discord_export(export_path, discord_token, channel_key, output_t
 
     # if file exists and not force_file_regen, return
     file_path = DISCORD_EXPORT_DIR_PATH_RAW + '/' + output_file 
-    if (check_matching_file_exists_ignore_creation_date(DISCORD_EXPORT_DIR_PATH_RAW, output_file) and not force_file_regen):
-        print(f"\nFILE EXISTS: {file_path}\n")
-        return output_file, output_type
+    is_match, matching_output_file = check_matching_file_exists_ignore_creation_date(DISCORD_EXPORT_DIR_PATH_RAW, output_file)
+    if (is_match and not force_file_regen):
+        print(f"\nFILE EXISTS: {DISCORD_EXPORT_DIR_PATH_RAW}/{matching_output_file}\n")
+        return matching_output_file, output_type
 
     # generate discord export
     docker_command = f"docker run --rm -v {export_path}:/out tyrrrz/discordchatexporter:stable export -t {discord_token} -c {channel_id} -f {output_type} -o {output_file} --after {after} --before {before}"
@@ -131,8 +136,8 @@ for channel_key in CHANNEL_AND_THREAD_IDS:
         DISCORD_TOKEN_ID, 
         channel_key, 
         'json', 
-        get_one_week_before_ref_date(reference_date='2023-04-27'), 
-        '2023-04-27', 
+        get_one_week_before_ref_date(reference_date=reference_date), 
+        reference_date, 
         False
     )
 
@@ -141,32 +146,74 @@ for channel_key in CHANNEL_AND_THREAD_IDS:
         with open(DISCORD_EXPORT_DIR_PATH_RAW + '/' + file_name)  as f:
             data = json.load(f)
             channel_key_to_message_data[channel_key] = data
-            print(f"\nCHANNEL KEY: {channel_key}\nDATA:\n{data}\n")
+            # print(f"\nCHANNEL KEY: {channel_key}\nDATA:\n{data}\n")
     
-    # calling break will do it for one channel for testing
+    # TODO: calling break will do it for one channel for testing
     break
 
-# iterate through channel key to message data
+# exit program
+# exit()
+
 MAX_PROMPT_TOKENS = 2500
+COMPLETIONS_API_PARAMS = {
+    "model": COMPLETIONS_MODEL,
+    "temperature": 0, # We use temperature of 0.0 because it gives the most predictable, factual answer.
+    # "top_p": 1
+}
+get_topics_responses = {}
+# iterate through channel key to message data
 for channel_key in channel_key_to_message_data:
+    get_topics_responses[channel_key] = [] 
+
     # get message data
     message_data = channel_key_to_message_data[channel_key]
-    messages_structured = transform_message_data(message_data)
+    messages_structured = transform_message_data(message_data['messages'])
+
 
     # this is what we will insert into the prompt    
     insert_discord_msgs_str = ""
     insert_discord_msgs_str_token_count = 0
-
     # iterate through messages_structured
     for message_structured in messages_structured:
         message_str, tokens_count = build_message_str(message_structured)
 
-        # if we are over the token limit, break
+        # if we are over the token limit, we don't want to include the current message, but we want to take the insert_discord_msgs_str and insert it into the prompt and then call the api; then we want to reset the insert str and token count and add the current message to it and continue iterating
         if insert_discord_msgs_str_token_count + tokens_count > MAX_PROMPT_TOKENS:
+            prompt = PROMPTS['get_topics_from_msgs'](insert_discord_msgs_str)
+            print(f"\nINSERT DISCORD MSGS STR:\n{insert_discord_msgs_str}\n")
+
+            # call api
+            response = openai.ChatCompletion.create(messages=[{"role": "user", "content": prompt}], **COMPLETIONS_API_PARAMS)
+
+            get_topics_responses[channel_key].append(response)
+
+            # reset insert_discord_msgs_str and insert_discord_msgs_str_token_count
+            insert_discord_msgs_str = ""
+            insert_discord_msgs_str_token_count = 0
+
+            # add current message to insert_discord_msgs_str
+            insert_discord_msgs_str += message_str
+            insert_discord_msgs_str_token_count += tokens_count
+
             break
         else:
             insert_discord_msgs_str += message_str
             insert_discord_msgs_str_token_count += tokens_count
 
-    # response = openai.ChatCompletion.create(messages=[{"role": "user", "content": prompt}], **COMPLETIONS_API_PARAMS)
+            # if we are at the end of the messages_structured, we want to call the api
+            if message_structured == messages_structured[-1]:
+                prompt = PROMPTS['get_topics_from_msgs'](insert_discord_msgs_str)
+                print(f"\nINSERT DISCORD MSGS STR:\n{insert_discord_msgs_str}\n")
+
+                # call api
+                response = openai.ChatCompletion.create(messages=[{"role": "user", "content": prompt}], **COMPLETIONS_API_PARAMS)
+                get_topics_responses[channel_key].append(response)
+
+                # reset insert_discord_msgs_str and insert_discord_msgs_str_token_count
+                insert_discord_msgs_str = ""
+                insert_discord_msgs_str_token_count = 0
+
+print(f"\nGET TOPICS RESPONSES:\n{get_topics_responses}\n")
+
+
 
