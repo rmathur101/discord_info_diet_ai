@@ -130,12 +130,12 @@ for channel_key in CHANNEL_AND_THREAD_IDS:
     #TODO this should be today's date when you want to generate a weekly summary; in fact you may need to do today's date + 1 - need to check this 
     reference_date = '2023-04-27'
 
-    # create discord export
+    # create discord export (NOTE: json or htmldark for type)
     file_name, file_type = gen_and_get_discord_export(
         DISCORD_EXPORT_DIR_PATH, 
         DISCORD_TOKEN_ID, 
         channel_key, 
-        'json', 
+        'json',
         get_one_week_before_ref_date(reference_date=reference_date), 
         reference_date, 
         False
@@ -194,8 +194,6 @@ for channel_key in channel_key_to_message_data:
             # add current message to insert_discord_msgs_str
             insert_discord_msgs_str += message_str
             insert_discord_msgs_str_token_count += tokens_count
-
-            break
         else:
             insert_discord_msgs_str += message_str
             insert_discord_msgs_str_token_count += tokens_count
