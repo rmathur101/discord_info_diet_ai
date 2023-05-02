@@ -9,7 +9,7 @@ from datetime import datetime, date, timedelta
 import subprocess
 from pathlib import Path
 import re
-from helpers import get_token_count, transform_message_data, build_message_str
+from helpers import get_token_count, transform_message_data, build_message_str, format_messages
 load_dotenv()
 
 # constants 
@@ -50,14 +50,15 @@ openai.api_key = os.getenv("OPENAI_API_KEY")
 COMPLETIONS_MODEL = os.getenv("COMPLETIONS_MODEL")
 ENCODING = tiktoken.get_encoding("cl100k_base")
 
-def prompt_get_topics_from_msgs(discord_msgs_str):
-    prompt = "I have a series of messages formatted as follows:\n\n[message ID] [timestamp] [AUTHOR: username] Message content with line breaks represented by <br>.\n\nHere are the messages:\n\n<Insert Discord messages here>\n\nPlease carefully analyze the messages and generate a comprehensive list of topics discussed in these messages. Make sure to include as many relevant topics as possible, even if they are only mentioned briefly or in a single message. Your goal is to provide an exhaustive overview of the subjects discussed in the conversation."
+def prompt_summarize_discord_msgs(discord_msgs_str):
+    prompt = 'I have a series of messages formatted in JSON as follows:\n\n{\n "id": "message ID",\n "type": "message type",\n "author_name": "username",\n "timestamp": "timestamp",\n "content": "Message content with line breaks represented by <br>.",\n "reactions": [{"emoji_name": "emoji name", "count": "number of reactions"}],\n "mentions": ["mentioned user names"],\n "reference_messageId": "referenced message ID"\n}\n\nHere are the messages:\n\n<Insert Discord messages here>\n\nPlease carefully analyze the messages, taking into account the reactions (emoji and count) as indicators of the significance or agreement/disagreement with the message content. Also, consider the reply relationships between messages, as they may provide additional context or indicate a back-and-forth discussion. Generate a comprehensive summary of the topics discussed, including the main points made by each author. Be sure to mention any relevant links or resources shared as part of the conversation. Additionally, identify any key questions or concerns raised by the authors, and if applicable, note any consensus or differing opinions on the subjects discussed, as indicated by the message content, reactions, and reply relationships.'
+
     # replace <Insert Discord messages here> with actual messages
     prompt = prompt.replace("<Insert Discord messages here>", discord_msgs_str)
     return prompt
 
 PROMPTS = {
-    "get_topics_from_msgs": prompt_get_topics_from_msgs
+    "summarize_discord_msgs": prompt_summarize_discord_msgs 
 }
 
 # get date a week ago from today
@@ -160,14 +161,15 @@ COMPLETIONS_API_PARAMS = {
     "temperature": 0, # We use temperature of 0.0 because it gives the most predictable, factual answer.
     # "top_p": 1
 }
-get_topics_responses = {}
+summarize_discord_msgs_responses = {}
 # iterate through channel key to message data
 for channel_key in channel_key_to_message_data:
-    get_topics_responses[channel_key] = [] 
+    summarize_discord_msgs_responses[channel_key] = [] 
 
     # get message data
     message_data = channel_key_to_message_data[channel_key]
-    messages_structured = transform_message_data(message_data['messages'])
+    # messages_structured = transform_message_data(message_data['messages'])
+    messages_structured = format_messages(message_data['messages'])
 
 
     # this is what we will insert into the prompt    
@@ -175,17 +177,19 @@ for channel_key in channel_key_to_message_data:
     insert_discord_msgs_str_token_count = 0
     # iterate through messages_structured
     for message_structured in messages_structured:
-        message_str, tokens_count = build_message_str(message_structured)
+        # message_str, tokens_count = build_message_str(message_structured)
+        message_str = message_structured + "\n"
+        tokens_count = get_token_count(message_str)
 
         # if we are over the token limit, we don't want to include the current message, but we want to take the insert_discord_msgs_str and insert it into the prompt and then call the api; then we want to reset the insert str and token count and add the current message to it and continue iterating
         if insert_discord_msgs_str_token_count + tokens_count > MAX_PROMPT_TOKENS:
-            prompt = PROMPTS['get_topics_from_msgs'](insert_discord_msgs_str)
-            print(f"\nINSERT DISCORD MSGS STR:\n{insert_discord_msgs_str}\n")
+            prompt = PROMPTS['summarize_discord_msgs'](insert_discord_msgs_str)
+            print(f"\nCHANNEL KEY: {channel_key}\nPROMPT:\n{prompt}\n")
 
             # call api
             response = openai.ChatCompletion.create(messages=[{"role": "user", "content": prompt}], **COMPLETIONS_API_PARAMS)
 
-            get_topics_responses[channel_key].append(response)
+            summarize_discord_msgs_responses[channel_key].append(response)
 
             # reset insert_discord_msgs_str and insert_discord_msgs_str_token_count
             insert_discord_msgs_str = ""
@@ -200,18 +204,18 @@ for channel_key in channel_key_to_message_data:
 
             # if we are at the end of the messages_structured, we want to call the api
             if message_structured == messages_structured[-1]:
-                prompt = PROMPTS['get_topics_from_msgs'](insert_discord_msgs_str)
-                print(f"\nINSERT DISCORD MSGS STR:\n{insert_discord_msgs_str}\n")
+                prompt = PROMPTS['summarize_discord_msgs'](insert_discord_msgs_str)
+                print(f"\nCHANNEL KEY: {channel_key}\nPROMPT:\n{prompt}\n")
 
                 # call api
                 response = openai.ChatCompletion.create(messages=[{"role": "user", "content": prompt}], **COMPLETIONS_API_PARAMS)
-                get_topics_responses[channel_key].append(response)
+                summarize_discord_msgs_responses[channel_key].append(response)
 
                 # reset insert_discord_msgs_str and insert_discord_msgs_str_token_count
                 insert_discord_msgs_str = ""
                 insert_discord_msgs_str_token_count = 0
 
-print(f"\nGET TOPICS RESPONSES:\n{get_topics_responses}\n")
+print(f"\nSUMMARIZE DISCORD MSGS RESPONSES:\n{summarize_discord_msgs_responses}\n")
 
 
 
