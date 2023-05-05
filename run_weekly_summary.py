@@ -51,14 +51,29 @@ COMPLETIONS_MODEL = os.getenv("COMPLETIONS_MODEL")
 ENCODING = tiktoken.get_encoding("cl100k_base")
 
 def prompt_summarize_discord_msgs(discord_msgs_str):
-    prompt = 'I have a series of messages formatted in JSON as follows:\n\n{\n "id": "message ID",\n "type": "message type",\n "author_name": "username",\n "timestamp": "timestamp",\n "content": "Message content with line breaks represented by <br>.",\n "reactions": [{"emoji_name": "emoji name", "count": "number of reactions"}],\n "mentions": ["mentioned user names"],\n "reference_messageId": "referenced message ID"\n}\n\nHere are the messages:\n\n<Insert Discord messages here>\n\nPlease carefully analyze the messages, taking into account the reactions (emoji and count) as indicators of the significance or agreement/disagreement with the message content. Also, consider the reply relationships between messages, as they may provide additional context or indicate a back-and-forth discussion. Generate a comprehensive summary of the topics discussed, including the main points made by each author. Be sure to mention any relevant links or resources shared as part of the conversation. Additionally, identify any key questions or concerns raised by the authors, and if applicable, note any consensus or differing opinions on the subjects discussed, as indicated by the message content, reactions, and reply relationships.'
+    # ID:20 
+    prompt = 'I have a series of messages formatted in JSON as follows:\n\n{\n "id": "message ID",\n "type": "message type",\n "author_name": "username",\n "timestamp": "timestamp",\n "content": "Message content with line breaks represented by <br>.",\n "reactions": [{"emoji_name": "emoji name", "count": "number of reactions"}],\n "mentions": ["mentioned user names"],\n "reference_messageId": "referenced message ID"\n}\n\nHere are the messages:\n\n<Insert Discord messages here>\n\nPlease generate a comprehensive list of bullet points summarizing the messages. Each bullet point should start with a brief statement of the topic followed by a colon. Then, summarize the messages germane to that topic and make sure to cite the authors in the summaries in parentheses. You can cite the authors using the author_name field in the provided discord messages. There is no need to add any other metadata like message ID as part of the summaries.\n\nExample output format:\n- Title of Topic 1: Summary of relevant messages (Author1), additional information (Author2).\n- Title of Topic 2: Summary of the conversation (Author3), supporting points (Author4), opposing views (Author5).' 
 
     # replace <Insert Discord messages here> with actual messages
     prompt = prompt.replace("<Insert Discord messages here>", discord_msgs_str)
     return prompt
 
+def prompt_remove_no_context_summaries(concat_summaries_str):
+    prompt = "Please refine the following list of bullet points by removing any items that are too vague or lacking sufficient context. Maintain the original formatting and order for the remaining bullet points.\n\n<Insert Summaries here>\n\nExample of bullet points to be removed:\n- Twitter posts: Links to various Twitter posts are shared (jakejinglez, icreatelife, bengillin).\n- YouTube video links: Users share links to various YouTube videos (jakejinglez, kevinadidas).\n- Twitter links: Users share links to various tweets (jakejinglez, DataChaz).\n"
+
+    prompt = prompt.replace("<Insert Summaries here>", concat_summaries_str)
+    return prompt
+
+def prompt_consolidate_summaries_where_appropriate(concat_summaries_str):
+    prompt = "I have a list of bullet points, each summarizing a specific discussion. Every bullet point starts with a topic name, followed by a brief summary of the topic, and the author(s) of the discussion enclosed in parentheses. The format of the list is as follows:\n\n<Insert Summaries here>\n\nYour task is to analyze these bullet points, identify related topics, and consolidate them into single bullet points. For each consolidated bullet point, create a new topic name and summary, and include all relevant authors. If a bullet point does not seem to relate to others, leave it as is.\n\nPlease ensure that the consolidated bullet points adhere to the original format, i.e., they start with the topic name, followed by the summary, and the author(s) in parentheses.\n\nThe final output should be a bulleted list consisting of both consolidated and unaltered bullet points. Here is an example of the format I would like:\n\n- Consolidated Topic: Combined Summary (Author 1, Author 2).\n- Unaltered Topic: Summary of Unaltered Topic (Author 3).\n...\n\nIn your analysis and consolidation, please strive to maintain the accuracy and clarity of the original information."
+
+    prompt = prompt.replace("<Insert Summaries here>", concat_summaries_str)
+    return prompt
+
 PROMPTS = {
-    "summarize_discord_msgs": prompt_summarize_discord_msgs 
+    "summarize_discord_msgs": prompt_summarize_discord_msgs,
+    "remove_no_context_summaries": prompt_remove_no_context_summaries,
+    "consolidate_summaries_where_appropriate": prompt_consolidate_summaries_where_appropriate
 }
 
 # get date a week ago from today
@@ -130,6 +145,7 @@ channel_key_to_message_data = {}
 for channel_key in CHANNEL_AND_THREAD_IDS:
     #TODO this should be today's date when you want to generate a weekly summary; in fact you may need to do today's date + 1 - need to check this 
     reference_date = '2023-04-27'
+    # reference_date = '2023-05-05'
 
     # create discord export (NOTE: json or htmldark for type)
     file_name, file_type = gen_and_get_discord_export(
@@ -159,7 +175,8 @@ MAX_PROMPT_TOKENS = 2500
 COMPLETIONS_API_PARAMS = {
     "model": COMPLETIONS_MODEL,
     "temperature": 0, # We use temperature of 0.0 because it gives the most predictable, factual answer.
-    # "top_p": 1
+    # "top_p": 1,
+    "max_tokens": 1200 
 }
 summarize_discord_msgs_responses = {}
 # iterate through channel key to message data
@@ -217,5 +234,30 @@ for channel_key in channel_key_to_message_data:
 
 print(f"\nSUMMARIZE DISCORD MSGS RESPONSES:\n{summarize_discord_msgs_responses}\n")
 
+# summarize summaries in summarize_discord_msgs_responses
+for channel_key in summarize_discord_msgs_responses:
+
+   # get responses for channel
+    responses = summarize_discord_msgs_responses[channel_key]
+
+    # get summaries from responses and create insert_summaries_str
+    concat_summaries_str = ""
+    for response in responses:
+        summary_str = response.choices[0].message.content
+        concat_summaries_str += summary_str + "\n"
+
+    # remove summaries that don't have context
+    prompt = PROMPTS['remove_no_context_summaries'](concat_summaries_str)
+    print(f"\nCHANNEL KEY: {channel_key}\nPROMPT: remove_no_context_summaries\n{prompt}\n")
+    response = openai.ChatCompletion.create(messages=[{"role": "user", "content": prompt}], **COMPLETIONS_API_PARAMS)
+    print(f"\nRESPONSE: remove_no_context_summaries\n{response.choices[0].message.content}\n")
+
+    no_context_summaries_str = response.choices[0].message.content
+
+    # consolidate summaries where appropriate
+    prompt = PROMPTS['consolidate_summaries_where_appropriate'](no_context_summaries_str)
+    print(f"\nCHANNEL KEY: {channel_key}\nPROMPT: consolidate_summaries_where_appropriate\n{prompt}\n")
+    response = openai.ChatCompletion.create(messages=[{"role": "user", "content": prompt}], **COMPLETIONS_API_PARAMS)
+    print(f"\nRESPONSE: consolidate_summaries_where_appropriate\n{response.choices[0].message.content}\n")
 
 
