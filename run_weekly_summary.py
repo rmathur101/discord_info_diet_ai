@@ -65,7 +65,7 @@ def prompt_remove_no_context_summaries(concat_summaries_str):
     return prompt
 
 def prompt_consolidate_summaries_where_appropriate(concat_summaries_str):
-    prompt = "I have a list of bullet points, each summarizing a specific discussion. Every bullet point starts with a topic name, followed by a brief summary of the topic, and the author(s) of the discussion enclosed in parentheses. The format of the list is as follows:\n\n<Insert Summaries here>\n\nYour task is to analyze these bullet points, identify related topics, and consolidate them into single bullet points. For each consolidated bullet point, create a new topic name and summary, and include all relevant authors. If a bullet point does not seem to relate to others, leave it as is.\n\nPlease ensure that the consolidated bullet points adhere to the original format, i.e., they start with the topic name, followed by the summary, and the author(s) in parentheses.\n\nThe final output should be a bulleted list consisting of both consolidated and unaltered bullet points. Here is an example of the format I would like:\n\n- Consolidated Topic: Combined Summary (Author 1, Author 2).\n- Unaltered Topic: Summary of Unaltered Topic (Author 3).\n...\n\nIn your analysis and consolidation, please strive to maintain the accuracy and clarity of the original information."
+    prompt = "I have a list of bullet points, each summarizing a topic of discussion. Every bullet point starts with a topic name, followed by a brief summary of the topic, and the author(s) of the discussion enclosed in parentheses. Here is the list of bullet points:\n\n<Insert Summaries here>\n\nYour task is to analyze these bullet points, identify overlapping topics, and consolidate the bullet points with overlapping topics into a single bullet point. For each consolidated bullet point, create a new topic name and summary, and include all relevant authors. If a bullet point does not overlap with others, leave it as is.\n\nPlease ensure that the consolidated bullet points adhere to the original format, i.e., they start with the topic name, followed by the summary, and the author(s) in parentheses. All bullet points, whether consolidated or unaltered, should be included in a single list.\n\nThe final output should be a bulleted list consisting of both consolidated and unaltered bullet points. Here is an example of the format of the output:\n\n- Consolidated Topic: Combined Summary (Author 1, Author 2).\n- Unaltered Topic: Summary of Unaltered Topic (Author 3).\n...\n\nIn your analysis and consolidation, please strive to maintain the accuracy and clarity of the original information."
 
     prompt = prompt.replace("<Insert Summaries here>", concat_summaries_str)
     return prompt
@@ -144,8 +144,8 @@ channel_key_to_message_data = {}
 # gen and load discord exports for all channels
 for channel_key in CHANNEL_AND_THREAD_IDS:
     #TODO this should be today's date when you want to generate a weekly summary; in fact you may need to do today's date + 1 - need to check this 
-    reference_date = '2023-04-27'
-    # reference_date = '2023-05-05'
+    # reference_date = '2023-04-27'
+    reference_date = '2023-05-08'
 
     # create discord export (NOTE: json or htmldark for type)
     file_name, file_type = gen_and_get_discord_export(
