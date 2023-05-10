@@ -9,7 +9,7 @@ from datetime import datetime, date, timedelta
 import subprocess
 from pathlib import Path
 import re
-from helpers import get_token_count, transform_message_data, build_message_str, format_messages
+from helpers import get_token_count, format_messages
 load_dotenv()
 
 # constants 
@@ -185,7 +185,6 @@ for channel_key in channel_key_to_message_data:
 
     # get message data
     message_data = channel_key_to_message_data[channel_key]
-    # messages_structured = transform_message_data(message_data['messages'])
     messages_structured = format_messages(message_data['messages'])
 
 
@@ -194,7 +193,6 @@ for channel_key in channel_key_to_message_data:
     insert_discord_msgs_str_token_count = 0
     # iterate through messages_structured
     for message_structured in messages_structured:
-        # message_str, tokens_count = build_message_str(message_structured)
         message_str = message_structured + "\n"
         tokens_count = get_token_count(message_str)
 
