@@ -1,3 +1,9 @@
+import os
+import tiktoken
+import openai
+from dotenv import load_dotenv
+load_dotenv()
+
 # discord constants 
 DISCORD_EXPORT_DIR_PATH = os.getenv('DISCORD_EXPORT_DIR_PATH') 
 DISCORD_EXPORT_DIR_PATH_RAW = os.getenv('DISCORD_EXPORT_DIR_PATH_RAW') 
