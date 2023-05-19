@@ -26,7 +26,7 @@ for channel_key in CHANNEL_AND_THREAD_IDS:
     #TODO this should be today's date when you want to generate a weekly summary; in fact you may need to do today's date + 1 - need to check this 
     # reference_date = '2023-04-27'
     # reference_date = '2023-05-08'
-    reference_date = '2023-05-12'
+    reference_date = '2023-05-15'
 
     # create discord export (NOTE: json or htmldark for type)
     file_name, file_type = gen_and_get_discord_export(
@@ -53,11 +53,12 @@ for channel_key in CHANNEL_AND_THREAD_IDS:
 
 # TODO: need to fix this so that I'm maxing out max tokens every time, and also adjusting these numbers in case I use GPT-4
 MAX_PROMPT_TOKENS = 2500
+# MAX_PROMPT_TOKENS = 6500
 COMPLETIONS_API_PARAMS = {
     "model": COMPLETIONS_MODEL,
     "temperature": 0, # We use temperature of 0.0 because it gives the most predictable, factual answer.
     # "top_p": 1,
-    "max_tokens": 1200 
+    # "max_tokens": 1200 
 }
 summarize_discord_msgs_responses = {}
 # iterate through channel key to message data
