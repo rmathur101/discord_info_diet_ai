@@ -1,4 +1,5 @@
 import tiktoken
+from collections import defaultdict
 import subprocess
 import json
 import os
@@ -8,7 +9,7 @@ from datetime import datetime, date, timedelta
 from dotenv import load_dotenv
 load_dotenv()
 
-# constants
+# constantsprompt_summarize_conversation_threao
 ENCODING = tiktoken.get_encoding("cl100k_base")
 
 def get_token_count(text):
@@ -25,7 +26,7 @@ def format_messages(messages):
             "author_name": message["author"]["name"],
             "timestamp": message["timestamp"],
             "content": message["content"].replace("\n", "<br>"),
-            "reactions": [{"emoji_name": reaction["emoji"]["code"], "count": reaction["count"]} for reaction in message["reactions"]],
+            "reactions": [{"emoji_name": reaction["emoji"]["code"], "count": reaction["count"], "image_url": reaction["emoji"]["imageUrl"]} for reaction in message["reactions"]],
             "mentions": [mention["name"] for mention in message["mentions"]],
             "reference_messageId": message.get("reference", {}).get("messageId", None)
         }
@@ -33,24 +34,139 @@ def format_messages(messages):
     
     return formatted_messages
 
-def prompt_summarize_discord_msgs(discord_msgs_str):
-    # ID:20 
-    prompt = 'I have a series of messages formatted in JSON as follows:\n\n{\n "id": "message ID",\n "type": "message type",\n "author_name": "username",\n "timestamp": "timestamp",\n "content": "Message content with line breaks represented by <br>.",\n "reactions": [{"emoji_name": "emoji name", "count": "number of reactions"}],\n "mentions": ["mentioned user names"],\n "reference_messageId": "referenced message ID"\n}\n\nHere are the messages:\n\n<Insert Discord messages here>\n\nPlease generate a comprehensive list of bullet points summarizing the messages. Each bullet point should start with a brief statement of the topic followed by a colon. Then, summarize the messages germane to that topic and make sure to cite the authors in the summaries in parentheses. You can cite the authors using the author_name field in the provided discord messages. There is no need to add any other metadata like message ID as part of the summaries.\n\nExample output format:\n- Title of Topic 1: Summary of relevant messages (Author1), additional information (Author2).\n- Title of Topic 2: Summary of the conversation (Author3), supporting points (Author4), opposing views (Author5).' 
+def format_single_message(message):
+    formatted_message = {
+        "id": message["id"],
+        "type": message["type"],
+        "author_name": message["author"]["name"],
+        "timestamp": message["timestamp"],
+        "content": message["content"].replace("\n", "<br>"),
+        "reactions": [{"emoji_name": reaction["emoji"]["code"], "count": reaction["count"], "image_url": reaction["emoji"]["imageUrl"]} for reaction in message["reactions"]],
+        "mentions": [mention["name"] for mention in message["mentions"]],
+        "reference_messageId": message.get("reference", {}).get("messageId", None),
+        "embeds": message.get("embeds", [])
+    }
+    return formatted_message
+
+def prompt_get_consolidate_mappings(bullet_summaries_str):
+    prompt = "Given a series of bullet summaries of conversation threads, each summary is structured as follows:\n\n1. An identification number (ID)\n2. Reactions (Data of reactions include the type of reaction, count, and image URL)\n3. Conversation participants\n4. Topic of the conversation\n5. A brief summary of the discussion\n\nFormat: \"ID: [ID number]\\n\\[Reactions data]\\n\\\"[Conversation participants] talk about [Topic]: [Summary].\\\"\n\nFor instance,\n\n\"ID: 0\\nReactions: {\\n\\\"fire\\\": {\\n\\\"count\\\": 9,\\n\\\"image_url\\\": \\\"https://cdn.jsdelivr.net/gh/twitter/twemoji@latest/assets/svg/1f525.svg\\\"\\n},\\n\\\"thumbsup_tone4\\\": {\\n\\\"count\\\": 1,\\n\\\"image_url\\\": \\\"https://cdn.jsdelivr.net/gh/twitter/twemoji@latest/assets/svg/1f44d-1f3fe.svg\\\"\\n}\\n}\\n\\\"John and Jane talk about AI: John shares an article about the advancement of AI, and Jane provides her insights on the potential of AI in the future.\\\"\"\n\nHere are the summaries:\n\n<Insert bullet summaries here>\n\nYour tasks are:\n\n1. Analyze each summary. \n2. Identify which summaries highly overlap in topic content that they should be consolidated. Summaries that should be consolidated should be very similar or related in topic or content.\n3. Generate a JSON string to represent the consolidation results. Each consolidation group should have its own unique key, starting with 0 and incrementing by 1 for each group. The value for each key should be an object with two keys:\n   - \"consolidate_ids\": an array of the IDs to be consolidated\n   - \"reasoning\": a string providing an explanation for the consolidation\n\nThe output JSON string should follow this format:\n\n{\n   \"0\": {\"consolidate_ids\": [2, 4, 6], \"reasoning\": \"All discuss AI development\"},\n   \"1\": {\"consolidated_id\": [3, 5, 7], \"reasoning\": \"All explore the implications of climate change\"},\n   ...\n}\n\nThe aim is to identify which IDs need to be consolidated to create a more streamlined and concise set of summaries by reducing redundancy and grouping similar topics together. You only need to return the JSON string representing the consolidation groups."
+
+    prompt = prompt.replace("<Insert bullet summaries here>", bullet_summaries_str)
+
+    return prompt
+
+def prompt_consolidate_bullet_summaries(bullet_summaries_str):
+    # prompt = 'Given a series of bullet summaries of conversation threads, each summary is structured as follows:\n\n1. An identification number (ID)\n2. Reactions (Data of reactions include the type of reaction, count, and image URL)\n3. Conversation participants\n4. Topic of the conversation\n5. A brief summary of the discussion\n\nFormat: "ID: [ID number]\n[Reactions data]\n"[Conversation participants] talk about [Topic]: [Summary]."\n\nFor instance,\n\n"ID: 0\nReactions: {\n"fire": {\n"count": 9,\n"image_url": "https://cdn.jsdelivr.net/gh/twitter/twemoji@latest/assets/svg/1f525.svg\"\\n},\\n\"thumbsup_tone4\": {\n"count": 1,\n"image_url": "https://cdn.jsdelivr.net/gh/twitter/twemoji@latest/assets/svg/1f44d-1f3fe.svg\"\\n}\\n}\\n\"John and Jane talk about AI: John shares an article about the advancement of AI, and Jane provides her insights on the potential of AI in the future.""\n\nHere are the summaries:\n\n<Insert bullet summaries here>\n\nYour task is:\n\nTake the bullet summaries and create new consolidated summaries. Each consolidated summary should follow the original format but will contain multiple IDs, multiple reaction data structures, and a merged summary that accounts for all the conversations in the consolidated group. Ensure all parts of the summary are updated accordingly, especially the authors and topic section.\n\nThe aim is to create a more streamlined and concise set of summaries by reducing redundancy and grouping similar topics together.' 
+
+
+    # THIS PROMPT IS THE ONE I USED TO RUN THE 3rd summary I RAN, it does not have sub-bullets
+    prompt = "Given a series of bullet summaries of conversation threads, each summary is structured as follows:\n\n1. An identification number (ID)\n2. Reactions (Data of reactions include the type of reaction, count, and image URL)\n3. Conversation participants\n4. Topic of the conversation\n5. A brief summary of the discussion\n\nFormat: \"ID: [ID number]\n[Reactions data]\n\"[Conversation participants] talk about [Topic]: [Summary].\"\n\nFor instance,\n\n\"ID: 0\nReactions: {\\n\"fire\": {\\n\"count\": 9,\\n\"image_url\": \"https://cdn.jsdelivr.net/gh/twitter/twemoji@latest/assets/svg/1f525.svg\"\\n},\\n\"thumbsup_tone4\": {\\n\"count\": 1,\\n\"image_url\": \"https://cdn.jsdelivr.net/gh/twitter/twemoji@latest/assets/svg/1f44d-1f3fe.svg\"\\n}\\n}\\n\"John and Jane talk about AI: John shares an article about the advancement of AI, and Jane provides her insights on the potential of AI in the future.\"\"\n\nHere are the summaries:\n\n<Insert bullet summaries here>\n\nYour task is:\n\nTake the bullet summaries and create new consolidated summaries. For each consolidated summary, DO NOT include the ID or reactions sections from the original format. Instead, your output should ONLY follow the format of \"[Conversation participants] talk about [Topic]: [Summary].\", containing multiple conversation participants, a merged topic, and a merged summary that accounts for all the conversations in the consolidated group. Ensure all parts of the summary are updated accordingly.\n\nThe aim is to create a more streamlined and concise set of summaries by reducing redundancy and grouping similar topics together."
+
+    # this one did not yield a single topic everytime, sometimes there were multiple topics in there 
+#     prompt = ("Given a series of bullet summaries of conversation threads, each summary is structured as follows:\n\n"
+# "1. An identification number (ID)\n"
+# "2. Reactions (Data of reactions include the type of reaction, count, and image URL)\n"
+# "3. Conversation participants\n"
+# "4. Topic of the conversation\n"
+# "5. A brief summary of the discussion\n\n"
+# "Format: \"ID: [ID number]\n[Reactions data]\n"
+# "\"[Conversation participants] talk about [Topic]: [Summary].\"\n\n"
+# "For instance,\n\n"
+# "\"ID: 0\nReactions: {\\n\"fire\": {\\n\"count\": 9,\\n\"image_url\": \"https://cdn.jsdelivr.net/gh/twitter/twemoji@latest/assets/svg/1f525.svg\"\\n},\\n"
+# "\"thumbsup_tone4\": {\\n\"count\": 1,\\n\"image_url\": \"https://cdn.jsdelivr.net/gh/twitter/twemoji@latest/assets/svg/1f44d-1f3fe.svg\"\\n}\\n}\\n"
+# "\"John and Jane talk about AI: John shares an article about the advancement of AI, and Jane provides her insights on the potential of AI in the future.\"\"\n\n"
+# "Here are the summaries:\n\n"
+# "<Insert bullet summaries here>\n\n"
+# "Your task is:\n\n"
+# "Take the bullet summaries and create new consolidated summaries. For each consolidated summary, DO NOT include the ID or reactions sections from the original format. "
+# "Instead, your output should follow this format:\n\n"
+# "- [Topic]\n"
+# "    - [Conversation participants]: [Concise point made in the conversation]\n"
+# "    - [Conversation participants]: [Concise point made in the conversation]\n"
+# "    - ...\n\n"
+# "There should be one or more sub-bullets for each topic, and each sub-bullet should represent a different significant point made in the conversation. "
+# "Ensure all parts of the summary are updated accordingly.\n\n"
+# "The aim is to create a more streamlined, organized, and concise set of summaries by reducing redundancy and grouping similar topics together.")
+
+#     prompt = prompt = ("Given a series of bullet summaries of conversation threads, each summary is structured as follows:\n\n"
+# "1. An identification number (ID)\n"
+# "2. Reactions (Data of reactions include the type of reaction, count, and image URL)\n"
+# "3. Conversation participants\n"
+# "4. Topic of the conversation\n"
+# "5. A brief summary of the discussion\n\n"
+# "Format: \"ID: [ID number]\n[Reactions data]\n"
+# "\"[Conversation participants] talk about [Topic]: [Summary].\"\n\n"
+# "For instance,\n\n"
+# "\"ID: 0\nReactions: {\\n\"fire\": {\\n\"count\": 9,\\n\"image_url\": \"https://cdn.jsdelivr.net/gh/twitter/twemoji@latest/assets/svg/1f525.svg\"\\n},\\n"
+# "\"thumbsup_tone4\": {\\n\"count\": 1,\\n\"image_url\": \"https://cdn.jsdelivr.net/gh/twitter/twemoji@latest/assets/svg/1f44d-1f3fe.svg\"\\n}\\n}\\n"
+# "\"John and Jane talk about AI: John shares an article about the advancement of AI, and Jane provides her insights on the potential of AI in the future.\"\"\n\n"
+# "Here are the summaries:\n\n"
+# "<Insert bullet summaries here>\n\n"
+# "Your task is:\n\n"
+# "Take the bullet summaries and create a new consolidated summary for a single topic. DO NOT include the ID or reactions sections from the original format. "
+# "Instead, your output should follow this format:\n\n"
+# "- [Topic]\n"
+# "    - [Conversation participants]: [Concise point made in the conversation]\n"
+# "    - [Conversation participants]: [Concise point made in the conversation]\n"
+# "    - ...\n\n"
+# "There should be one or more sub-bullets under the single topic, and each sub-bullet should represent a different significant point made in the conversation. "
+# "Ensure all parts of the summary are updated accordingly.\n\n"
+# "The aim is to create a more streamlined, organized, and concise set of summaries by reducing redundancy and grouping similar topics together.")
+
+
+
+
+    prompt = prompt.replace("<Insert bullet summaries here>", bullet_summaries_str)
+    return prompt
+
+def prompt_reformat_summary(summary):
+#     prompt = ("Given a summary of a conversation thread in the following format:\n\n"
+# "\"[Conversation participants] talk about [Topic]: [Summary]\"\n\n"
+# "For instance,\n\n"
+# "\"John and Jane talk about AI: John shares an article about the advancement of AI, and Jane provides her insights on the potential of AI in the future.\"\n\n"
+# "Here is the summary:\n\n"
+# "<Insert summary here>\n\n"
+# "Your task is:\n\n"
+# "1. Identify the topic of the summary.\n"
+# "2. Identify any significant points that were made by the participants.\n"
+# "3. Output a new version of the summary that first states the topic and then details the significant points made by each participant. Your output should follow this format:\n\n"
+# "[Topic]\n"
+# "    [Conversation participants]: [Concise point made in the conversation]\n"
+# "    [Conversation participants]: [Concise point made in the conversation]\n"
+# "    ...\n\n"
+# "Ensure all parts of the summary are updated accordingly, and the output is concise and specific. The sub-bullets should reference the participants who made the significant points."
+# "The aim is to create a more organized and concise summary by focusing on the topic and the key details.")
+
+    prompt = ("Given a summary of a conversation thread in the following format:\n\n"
+    "\"[Conversation participants] talk about [Topic]: [Summary]\"\n\n"
+    "For instance,\n\n"
+    "\"John and Jane talk about AI: John shares an article about the advancement of AI, and Jane provides her insights on the potential of AI in the future.\"\n\n"
+    "Here is the summary:\n\n"
+    "<Insert summary here>\n\n"
+    "Your task is:\n\n"
+    "1. Identify the topic of the summary.\n"
+    "2. Identify any significant points that were made by the participants.\n"
+    "3. Output a new version of the summary that first states the topic by creating a topic title and then details the significant points made by each participant. Your output should follow this format:\n\n"
+    "[Topic Title]\n"
+    "    [Concise summary of a significant part of the conversation, mentioning the participants]\n"
+    "    [Concise summary of a significant part of the conversation, mentioning the participants]\n"
+    "    ...\n\n"
+    "Ensure all parts of the summary are updated accordingly, and the output is concise and specific. The sub-bullets should reference the participants who made the significant points."
+    "Please make sure that the Topic Title is just the topic title itself. There is no need to do something like: \"Topic Title: [Topic Title]\". Just output the topic title itself."
+    "Please make sure there is only one topic per output. Please do not output more than one topic. There should be a single Topic Title along with the sub-bullets for the entire summary."
+    "The aim is to create a more organized and concise summary by focusing on the topic and the key details." 
+    "Please make sure there is only one topic for the entire summary. We do not want multiple topics or nested topics. We want a single topic and the sub-bullets for the entire summary.") # i added this last line
+
+    prompt = prompt.replace("<Insert summary here>", summary)
+
+    return prompt
+
+
+def prompt_summarize_conversation_thread(discord_msgs_str):
+    prompt = 'I have a series of messages formatted in JSON as follows:\n\n{\n "id": "message ID",\n "type": "message type",\n "author_name": "username",\n "timestamp": "timestamp",\n "content": "Message content with line breaks represented by <br>.",\n "reactions": [{"emoji_name": "emoji name", "count": "number of reactions"}],\n "mentions": ["mentioned user names"],\n "reference_messageId": "referenced message ID",\n "embeds": [\n {\n "url": "URL of the embedded content",\n "description": "Description of the embedded content"\n }\n ]\n}\n\nHere are the messages:\n\n<Insert Discord messages here>\n\nAll these Discord messages belong to a single conversation thread. I need you to generate a summary of this entire thread. Ensure to cite the authors in the summary using the author_name field in the provided discord messages. Please consider the "url" and "description" keys in the "embeds" list for context about any URLs posted within the content of the messages. There is no need to add any other metadata like message ID as part of the summary.\n\nThe format of the summary should be as follows: "[Author1, Author2 and others] talk about [INSERT TOPIC HERE]: [INSERT SUMMARY HERE]."\n'
 
     # replace <Insert Discord messages here> with actual messages
     prompt = prompt.replace("<Insert Discord messages here>", discord_msgs_str)
-    return prompt
-
-def prompt_remove_no_context_summaries(concat_summaries_str):
-    prompt = "Please refine the following list of bullet points by removing any items that are too vague or lacking sufficient context. Maintain the original formatting and order for the remaining bullet points.\n\n<Insert Summaries here>\n\nExample of bullet points to be removed:\n- Twitter posts: Links to various Twitter posts are shared (jakejinglez, icreatelife, bengillin).\n- YouTube video links: Users share links to various YouTube videos (jakejinglez, kevinadidas).\n- Twitter links: Users share links to various tweets (jakejinglez, DataChaz).\n"
-
-    prompt = prompt.replace("<Insert Summaries here>", concat_summaries_str)
-    return prompt
-
-def prompt_consolidate_summaries_where_appropriate(concat_summaries_str):
-    prompt = "I have a list of bullet points, each summarizing a topic of discussion. Every bullet point starts with a topic name, followed by a brief summary of the topic, and the author(s) of the discussion enclosed in parentheses. Here is the list of bullet points:\n\n<Insert Summaries here>\n\nYour task is to analyze these bullet points, identify overlapping topics, and consolidate the bullet points with overlapping topics into a single bullet point. For each consolidated bullet point, create a new topic name and summary, and include all relevant authors. If a bullet point does not overlap with others, leave it as is.\n\nPlease ensure that the consolidated bullet points adhere to the original format, i.e., they start with the topic name, followed by the summary, and the author(s) in parentheses. All bullet points, whether consolidated or unaltered, should be included in a single list.\n\nThe final output should be a bulleted list consisting of both consolidated and unaltered bullet points. Here is an example of the format of the output:\n\n- Consolidated Topic: Combined Summary (Author 1, Author 2).\n- Unaltered Topic: Summary of Unaltered Topic (Author 3).\n...\n\nIn your analysis and consolidation, please strive to maintain the accuracy and clarity of the original information."
-
-    prompt = prompt.replace("<Insert Summaries here>", concat_summaries_str)
     return prompt
 
 # get date a week ago from today
@@ -114,3 +230,119 @@ def gen_and_get_discord_export(export_path, discord_token, channel_key, output_t
     subprocess.run(docker_command, shell=True)
 
     return output_file, output_type
+
+# Function to group messages into threads; will return a list of lists where each list is a "thread" which is a top level message and all of its replies contained as values to a "replies" key in that top level message
+def group_messages(messages):
+    # this will be a dictionary of message id to message
+    message_dict = {}
+
+    # populate the dictionary
+    for message in messages:
+        message_dict[message['id']] = message
+
+    # To keep track of reply messages; this is how we will know if a message is a reply or a top level message (i.e. the start of a thread)
+    reply_ids = set()  
+
+    for message in messages:
+
+        # if there is a reference key and it is not None, then this message is a reply
+        if 'reference' in message and message['reference'] is not None:
+            parent_message_id = message['reference']['messageId']
+
+            if parent_message_id in message_dict:
+                parent_message = message_dict[parent_message_id]
+
+                if 'replies' not in parent_message:
+                    parent_message['replies'] = []
+
+                # this will modify the original message_dict as well and will allow us to keep track of the replies to a message
+                parent_message['replies'].append(message)
+
+                # Add reply message ID to the set
+                reply_ids.add(message['id'])  
+
+    # Create a new list of threads excluding the reply messages; this means that the threads list will only contain top level messages (i.e. the start of a thread); each thread which will be a list containing the top level message, will also contain a list of replies to that message (if any) as a value of the 'replies' key; this nested structure can continue for as many levels as there are replies to a message
+    threads = [[message] for message in messages if message['id'] not in reply_ids]
+
+    return threads
+
+# Function to flatten a nested messages list into a single list of messages; it starts with the top level message and then recurses through the replies to that message so that we end up with a single list of messages that were part of that thread
+def flatten_thread(thread):
+    flattened = []
+    for message in thread:
+        flattened.append(message)
+        if 'replies' in message:
+            flattened.extend(flatten_thread(message['replies']))
+    return flattened
+
+def merge_consecutive_threads_by_same_author(flattened_threads):
+    """
+    This function takes a list of flattened threads and merges consecutive threads 
+    that start with a message by the same author.
+    I believe that the flattened_threads list is already sorted by timestamp, so
+    this function should work as expected. 
+    """
+    merged_threads = []
+    current_thread = flattened_threads[0]
+
+    for next_thread in flattened_threads[1:]:
+        # Check if the first messages in current and next threads are by the same author
+        if current_thread[0]['author']['id'] == next_thread[0]['author']['id']:
+            # If they are, merge the threads
+            current_thread += next_thread
+        else:
+            # If they are not, add the current thread to the list of merged threads
+            # and start a new current thread
+            merged_threads.append(current_thread)
+            current_thread = next_thread
+
+    # Don't forget to add the last thread to the list
+    merged_threads.append(current_thread)
+
+    return merged_threads
+
+def sort_messages_by_timestamp(flattened_threads):
+    for thread in flattened_threads:
+        thread.sort(key=lambda msg: msg['timestamp'])
+
+    return flattened_threads
+
+def extract_emoji_info(thread):
+    emoji_info = defaultdict(lambda: {'count': 0, 'image_url': ''})
+
+    for message in thread:
+        if 'reactions' in message:
+            for reaction in message['reactions']:
+                emoji_name = reaction['emoji_name']  # The name of the emoji
+                emoji_info[emoji_name]['count'] += reaction['count']  # Increment the count
+                emoji_info[emoji_name]['image_url'] = reaction['image_url']  # Get the image link
+
+    return emoji_info
+
+def aggregate_reactions(data):
+    reaction_counts = {}
+
+    for key in data:
+        obj = data[key]
+        reactions = obj.get('reactions', {})
+
+        for emoji_name in reactions:
+            reaction = reactions[emoji_name]
+            count = reaction['count']
+            image_url = reaction['image_url']
+
+            if emoji_name in reaction_counts:
+                reaction_counts[emoji_name]['count'] += count
+            else:
+                reaction_counts[emoji_name] = {'count': count, 'image_url': image_url}
+
+    return reaction_counts
+
+def extract_objects_by_ids(json_object, ids):
+    result = {}
+
+    for key, value in json_object.items():
+        if key in ids:
+            result[key] = value
+
+    return result
