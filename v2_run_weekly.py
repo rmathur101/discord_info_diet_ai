@@ -6,7 +6,7 @@ from transformers import GPT2TokenizerFast
 from datetime import datetime, date, timedelta
 from pathlib import Path
 import re
-from helpers import get_token_count, format_messages, get_today_str, get_one_week_before_ref_date, check_file_exists, check_matching_file_exists_ignore_creation_date, gen_and_get_discord_export, group_messages, flatten_thread, merge_consecutive_threads_by_same_author, sort_messages_by_timestamp, format_single_message, prompt_summarize_conversation_thread, extract_emoji_info, prompt_consolidate_bullet_summaries, prompt_get_consolidate_mappings, aggregate_reactions, extract_objects_by_ids, prompt_reformat_summary
+from helpers import convert_messages_to_threads, get_token_count, format_messages, get_today_str, get_one_week_before_ref_date, check_file_exists, check_matching_file_exists_ignore_creation_date, gen_and_get_discord_export, group_messages, flatten_thread, merge_consecutive_threads_by_same_author, sort_messages_by_timestamp, format_single_message, prompt_summarize_conversation_thread, extract_emoji_info, prompt_consolidate_bullet_summaries, prompt_get_consolidate_mappings, aggregate_reactions, extract_objects_by_ids, prompt_reformat_summary 
 from constants import DISCORD_EXPORT_DIR_PATH, DISCORD_EXPORT_DIR_PATH_RAW, DISCORD_TOKEN_ID, CHANNEL_AND_THREAD_IDS, COMPLETIONS_MODEL
 import openai
 load_dotenv()
@@ -21,7 +21,7 @@ COMPLETIONS_API_PARAMS = {
 arguments = {
     "file_type": 'json', # json or htmldark
     "channel_key": 'lectures',
-    "reference_date": '2023-06-23', #TODO if you enter today's date it will run for the last week 
+    "reference_date": '2023-06-30', #TODO if you enter today's date it will run for the last week 
     "force_file_regen": False
 }
 
@@ -68,7 +68,7 @@ if (True):
 
 # generate consolidate mappings json
 # FLAG SECTION
-if (True):
+if (False):
     # create prompt
     prompt = PROMPTS["get_consolidate_mappings"](last_run_summaries_str)
     print(prompt)
@@ -166,7 +166,7 @@ if (True):
 
 # put this here if the last_run_summaries exist, if the file does exist, set to True because you want to exist ant not generates
 # FLAG SECTION
-if (False):
+if (True):
     sys.exit()
 
 # read file as json if json, otherwise exit if html
@@ -175,34 +175,16 @@ if file_type == 'json':
         discord_message_data = json.load(f)
         # print(f"discord_message_data: {print(json.dumps(discord_message_data, indent=4))}")
 
-        # group messages into threads (a thread will be a list of a top level message and its replies, and its replies' replies, etc.)
-        threads = group_messages(discord_message_data['messages'])
-
-        # flatten the threads to return a list of lists of messages (each list of messages is a thread)
-        flattened_threads = [flatten_thread(thread) for thread in threads]
-        
-        merged_flattened_threads = merge_consecutive_threads_by_same_author(flattened_threads)
-        # NOTE: i used the below for the 6/9 run, but then i switched back to the above 6/16
-        # merged_flattened_threads = flattened_threads
-
-        sorted_merged_flattened_threads = sort_messages_by_timestamp(merged_flattened_threads)
-
-        formatted_final = []
-        for thread in sorted_merged_flattened_threads:
-            formatted_thread = []
-            for message in thread:
-                formatted_thread.append(format_single_message(message))
-            formatted_final.append(formatted_thread)
+        formatted_final = convert_messages_to_threads(discord_message_data)
 
         # Write the threads to a JSON file
         threads_file_path = DISCORD_EXPORT_DIR_PATH_RAW + '/' + 'last_run_threads.json' 
         with open(threads_file_path, 'w') as f:
-            # json.dump(threads, f, indent=4)
             json.dump(formatted_final, f, indent=4)
 
 # NOTE: probably won't use any of the below, just keeping it here for now so I can pull from it 
 # ----------------------------
-    
+
 def create_chat_completion_with_retry(prompt, retries=3, delay=10):
     for i in range(retries):
         try:

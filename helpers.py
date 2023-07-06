@@ -6,6 +6,7 @@ import os
 import re
 from constants import DISCORD_EXPORT_DIR_PATH_RAW, CHANNEL_AND_THREAD_IDS 
 from datetime import datetime, date, timedelta
+from dateutil import parser
 from dotenv import load_dotenv
 load_dotenv()
 
@@ -286,10 +287,21 @@ def merge_consecutive_threads_by_same_author(flattened_threads):
     current_thread = flattened_threads[0]
 
     for next_thread in flattened_threads[1:]:
+        # Also check if the timestamp differential is less than 5 minutes
+        is_diff_less_than_5_minutes = False
+        current_thread_timestamp = parser.parse(current_thread[0]['timestamp'])
+        next_thread_timestamp = parser.parse(next_thread[0]['timestamp'])
+
+        diff = abs(next_thread_timestamp - current_thread_timestamp)
+        if (diff > timedelta(minutes=5)):
+            is_diff_less_than_5_minutes = True
+
+
         # Check if the first messages in current and next threads are by the same author
-        if current_thread[0]['author']['id'] == next_thread[0]['author']['id']:
+        if (current_thread[0]['author']['id'] == next_thread[0]['author']['id']) and is_diff_less_than_5_minutes:
             # If they are, merge the threads
             current_thread += next_thread
+
         else:
             # If they are not, add the current thread to the list of merged threads
             # and start a new current thread
@@ -346,3 +358,25 @@ def extract_objects_by_ids(json_object, ids):
             result[key] = value
 
     return result
+
+def convert_messages_to_threads(discord_message_data):
+    # group messages into threads (a thread will be a list of a top level message and its replies, and its replies' replies, etc.)
+    threads = group_messages(discord_message_data['messages'])
+
+    # flatten the threads to return a list of lists of messages (each list of messages is a thread)
+    flattened_threads = [flatten_thread(thread) for thread in threads]
+
+    merged_flattened_threads = merge_consecutive_threads_by_same_author(flattened_threads)
+    # NOTE: i used the below for the 6/9 run which just removes the merging function, but then i switched back to the above 6/16 because I seemed to get too many threads when I didn't merge consecutive threads by same author.
+    # merged_flattened_threads = flattened_threads
+
+    sorted_merged_flattened_threads = sort_messages_by_timestamp(merged_flattened_threads)
+
+    formatted_final = []
+    for thread in sorted_merged_flattened_threads:
+        formatted_thread = []
+        for message in thread:
+            formatted_thread.append(format_single_message(message))
+        formatted_final.append(formatted_thread)
+
+    return formatted_final 
