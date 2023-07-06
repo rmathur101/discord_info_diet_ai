@@ -352,6 +352,7 @@ def aggregate_reactions(data):
 
     return reaction_counts
 
+# we use this function to get a subset of data from the last_run_summaries object. recall that last_run_summaries contains the ids of objects as well as objects themselves (as the values) which contain the summary of the thread as well as reaction information as well as the thread itself. so when we do the consolidation step we then want to get all the data just for the bucket of ids that have been consolidated, that is what this is used for.
 def extract_objects_by_ids(json_object, ids):
     result = {}
 
