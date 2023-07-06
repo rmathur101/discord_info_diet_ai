@@ -1,13 +1,15 @@
 import tiktoken
+import time
 from collections import defaultdict
 import subprocess
 import json
 import os
 import re
-from constants import DISCORD_EXPORT_DIR_PATH_RAW, CHANNEL_AND_THREAD_IDS 
+from constants import DISCORD_EXPORT_DIR_PATH_RAW, CHANNEL_AND_THREAD_IDS, COMPLETIONS_API_PARAMS
 from datetime import datetime, date, timedelta
 from dateutil import parser
 from dotenv import load_dotenv
+import openai
 load_dotenv()
 
 # constantsprompt_summarize_conversation_threao
@@ -380,3 +382,15 @@ def convert_messages_to_threads(discord_message_data):
         formatted_final.append(formatted_thread)
 
     return formatted_final 
+
+def create_chat_completion_with_retry(prompt, retries=3, delay=10):
+    for i in range(retries):
+        try:
+            response = openai.ChatCompletion.create(
+                messages=[{"role": "user", "content": prompt}], **COMPLETIONS_API_PARAMS)
+            return response
+        except Exception as e:
+            print(f"Error: {e}. Attempt {i+1} of {retries} failed. Retrying in {delay} seconds.")
+            time.sleep(delay)
+    print("Maximum retries reached. Aborting.")
+    return None

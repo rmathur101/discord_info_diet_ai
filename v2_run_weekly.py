@@ -6,16 +6,11 @@ from transformers import GPT2TokenizerFast
 from datetime import datetime, date, timedelta
 from pathlib import Path
 import re
-from helpers import convert_messages_to_threads, get_token_count, format_messages, get_today_str, get_one_week_before_ref_date, check_file_exists, check_matching_file_exists_ignore_creation_date, gen_and_get_discord_export, group_messages, flatten_thread, merge_consecutive_threads_by_same_author, sort_messages_by_timestamp, format_single_message, prompt_summarize_conversation_thread, extract_emoji_info, prompt_consolidate_bullet_summaries, prompt_get_consolidate_mappings, aggregate_reactions, extract_objects_by_ids, prompt_reformat_summary 
-from constants import DISCORD_EXPORT_DIR_PATH, DISCORD_EXPORT_DIR_PATH_RAW, DISCORD_TOKEN_ID, CHANNEL_AND_THREAD_IDS, COMPLETIONS_MODEL
+from helpers import convert_messages_to_threads, get_token_count, format_messages, get_today_str, get_one_week_before_ref_date, check_file_exists, check_matching_file_exists_ignore_creation_date, gen_and_get_discord_export, group_messages, flatten_thread, merge_consecutive_threads_by_same_author, sort_messages_by_timestamp, format_single_message, prompt_summarize_conversation_thread, extract_emoji_info, prompt_consolidate_bullet_summaries, prompt_get_consolidate_mappings, aggregate_reactions, extract_objects_by_ids, prompt_reformat_summary, create_chat_completion_with_retry
+from constants import DISCORD_EXPORT_DIR_PATH, DISCORD_EXPORT_DIR_PATH_RAW, DISCORD_TOKEN_ID, CHANNEL_AND_THREAD_IDS, COMPLETIONS_MODEL, COMPLETIONS_API_PARAMS
 import openai
 load_dotenv()
-import time
 
-COMPLETIONS_API_PARAMS = {
-    "model": COMPLETIONS_MODEL,
-    "temperature": 0, # We use temperature of 0.0 because it gives the most predictable, factual answer.
-}
 
 # top level arguments 
 arguments = {
@@ -173,7 +168,6 @@ if (True):
 if file_type == 'json':
     with open(DISCORD_EXPORT_DIR_PATH_RAW + '/' + file_name)  as f:
         discord_message_data = json.load(f)
-        # print(f"discord_message_data: {print(json.dumps(discord_message_data, indent=4))}")
 
         formatted_final = convert_messages_to_threads(discord_message_data)
 
@@ -185,17 +179,6 @@ if file_type == 'json':
 # NOTE: probably won't use any of the below, just keeping it here for now so I can pull from it 
 # ----------------------------
 
-def create_chat_completion_with_retry(prompt, retries=3, delay=10):
-    for i in range(retries):
-        try:
-            response = openai.ChatCompletion.create(
-                messages=[{"role": "user", "content": prompt}], **COMPLETIONS_API_PARAMS)
-            return response
-        except Exception as e:
-            print(f"Error: {e}. Attempt {i+1} of {retries} failed. Retrying in {delay} seconds.")
-            time.sleep(delay)
-    print("Maximum retries reached. Aborting.")
-    return None
 
 all_summaries = {} 
 

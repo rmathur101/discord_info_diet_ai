@@ -43,3 +43,9 @@ CHANNEL_AND_THREAD_IDS = {
         'id': '1073100882700406824'
     }
 }
+
+# params for OAI API call
+COMPLETIONS_API_PARAMS = {
+    "model": COMPLETIONS_MODEL,
+    "temperature": 0, # We use temperature of 0.0 because it gives the most predictable, factual answer.
+}
