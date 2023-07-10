@@ -179,7 +179,6 @@ if file_type == 'json':
 # NOTE: probably won't use any of the below, just keeping it here for now so I can pull from it 
 # ----------------------------
 
-
 all_summaries = {} 
 
 for index, thread in enumerate(formatted_final):
@@ -205,9 +204,6 @@ for index, thread in enumerate(formatted_final):
     all_summaries[index]['summary'] = response.choices[0].message.content
 
     print(response)
-
-    # if (index > 2):
-    #     break 
 
 # output all_summaries to file
 with open(DISCORD_EXPORT_DIR_PATH_RAW + '/' + 'last_run_summaries.json', 'w') as f:
