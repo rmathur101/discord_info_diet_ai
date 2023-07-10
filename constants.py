@@ -41,6 +41,30 @@ CHANNEL_AND_THREAD_IDS = {
     },
     'tns_nostr': {
         'id': '1073100882700406824'
+    },
+    # arrow channels
+    'arrow_announcements': {
+        'id': '909653036887060480'
+    },
+    'arrow_community_chat': {
+        'id': '992121295691063426'
+    },
+    'arrow_general': {
+        'id': '853833144037277729'
+    },
+    'arrow_ideas': {
+        'id': '915000073694371881'
+    },
+    'arrow_vtol_news': {
+        'id': '993543594231222342'
+    },
+    'arrow_eng_general': {
+        'id': '914195759216336947'
+    },
+    # TODO: i haven't got the rest of the arrow channels, just the ones in "Arrow Community" that seemed relevant as well as an eng chan
+    # cabin channels 
+    'cabin_general_chat': {
+        'id': '892780693652897822'
     }
 }
 

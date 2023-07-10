@@ -16,7 +16,7 @@ load_dotenv()
 arguments = {
     "file_type": 'json', # json or htmldark
     "channel_key": 'lectures',
-    "reference_date": '2023-06-30', #TODO if you enter today's date it will run for the last week 
+    "reference_date": '2023-07-08', #TODO if you enter today's date it will run for the last week 
     "force_file_regen": False
 }
 
