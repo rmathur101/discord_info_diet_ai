@@ -11,7 +11,6 @@ from constants import DISCORD_EXPORT_DIR_PATH, DISCORD_EXPORT_DIR_PATH_RAW, DISC
 import openai
 load_dotenv()
 
-
 # top level arguments 
 arguments = {
     "file_type": 'json', # json or htmldark
@@ -39,6 +38,56 @@ file_name, file_type = gen_and_get_discord_export(
     arguments['force_file_regen']
 )
 
+# put this here if the last_run_summaries exist, if the file does exist, set to True because you want to exist ant not generates
+# FLAG SECTION
+if (False):
+    sys.exit()
+
+# read file as json if json, otherwise exit if html
+if file_type == 'json':
+    with open(DISCORD_EXPORT_DIR_PATH_RAW + '/' + file_name)  as f:
+        discord_message_data = json.load(f)
+
+        formatted_final = convert_messages_to_threads(discord_message_data)
+
+        # Write the threads to a JSON file
+        threads_file_path = DISCORD_EXPORT_DIR_PATH_RAW + '/' + 'last_run_threads.json' 
+        with open(threads_file_path, 'w') as f:
+            json.dump(formatted_final, f, indent=4)
+
+# NOTE: probably won't use any of the below, just keeping it here for now so I can pull from it 
+# ----------------------------
+
+all_summaries = {} 
+
+for index, thread in enumerate(formatted_final):
+
+    all_summaries[index] = {
+        "thread": thread,
+        "summary": None,
+        "reactions": extract_emoji_info(thread)
+    }
+
+    insert_discord_msgs_str = ""
+
+    for message in thread:
+        insert_discord_msgs_str += json.dumps(message) + "\n"
+
+    prompt = PROMPTS['summarize_conversation_thread'](insert_discord_msgs_str)
+    # print(f"\nCHANNEL KEY: {channel_key}\nPROMPT:\n{prompt}\n")
+    print(prompt)
+
+    # call api
+    response = create_chat_completion_with_retry(prompt)
+
+    all_summaries[index]['summary'] = response.choices[0].message.content
+
+    print(response)
+
+# output all_summaries to file
+with open(DISCORD_EXPORT_DIR_PATH_RAW + '/' + 'last_run_summaries.json', 'w') as f:
+    json.dump(all_summaries, f, indent=4)
+
 # load last run summaries if they exist and create a str with them all 
 # FLAG SECTION
 if (True):
@@ -63,6 +112,7 @@ if (True):
 
 # generate consolidate mappings json
 # FLAG SECTION
+# NOTE: i'm going to forgo the consolidation mappings for now, they haven't been working great and also been having issues with it not giving me back just json
 if (False):
     # create prompt
     prompt = PROMPTS["get_consolidate_mappings"](last_run_summaries_str)
@@ -157,54 +207,3 @@ if (True):
         json.dump(last_run_summaries, f, indent=4)
 
 
-
-
-# put this here if the last_run_summaries exist, if the file does exist, set to True because you want to exist ant not generates
-# FLAG SECTION
-if (True):
-    sys.exit()
-
-# read file as json if json, otherwise exit if html
-if file_type == 'json':
-    with open(DISCORD_EXPORT_DIR_PATH_RAW + '/' + file_name)  as f:
-        discord_message_data = json.load(f)
-
-        formatted_final = convert_messages_to_threads(discord_message_data)
-
-        # Write the threads to a JSON file
-        threads_file_path = DISCORD_EXPORT_DIR_PATH_RAW + '/' + 'last_run_threads.json' 
-        with open(threads_file_path, 'w') as f:
-            json.dump(formatted_final, f, indent=4)
-
-# NOTE: probably won't use any of the below, just keeping it here for now so I can pull from it 
-# ----------------------------
-
-all_summaries = {} 
-
-for index, thread in enumerate(formatted_final):
-
-    all_summaries[index] = {
-        "thread": thread,
-        "summary": None,
-        "reactions": extract_emoji_info(thread)
-    }
-
-    insert_discord_msgs_str = ""
-
-    for message in thread:
-        insert_discord_msgs_str += json.dumps(message) + "\n"
-
-    prompt = PROMPTS['summarize_conversation_thread'](insert_discord_msgs_str)
-    # print(f"\nCHANNEL KEY: {channel_key}\nPROMPT:\n{prompt}\n")
-    print(prompt)
-
-    # call api
-    response = create_chat_completion_with_retry(prompt)
-
-    all_summaries[index]['summary'] = response.choices[0].message.content
-
-    print(response)
-
-# output all_summaries to file
-with open(DISCORD_EXPORT_DIR_PATH_RAW + '/' + 'last_run_summaries.json', 'w') as f:
-    json.dump(all_summaries, f, indent=4)
