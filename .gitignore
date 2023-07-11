@@ -1,5 +1,6 @@
 .env
 files
+bulletins
 __pycache__/
 .DS_store
 venv

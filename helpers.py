@@ -5,7 +5,7 @@ import subprocess
 import json
 import os
 import re
-from constants import DISCORD_EXPORT_DIR_PATH_RAW, CHANNEL_AND_THREAD_IDS, COMPLETIONS_API_PARAMS
+from constants import DISCORD_EXPORT_DIR_PATH_RAW, CHANNEL_AND_THREAD_IDS, COMPLETIONS_API_PARAMS, HTML_TEMPLATE_PATH_RAW, DISCORD_EXPORT_DIR_PATH, DISCORD_TOKEN_ID, BULLETINS_PATH_RAW
 from datetime import datetime, date, timedelta
 from dateutil import parser
 from dotenv import load_dotenv
@@ -395,3 +395,33 @@ def create_chat_completion_with_retry(prompt, retries=3, delay=10):
             time.sleep(delay)
     print("Maximum retries reached. Aborting.")
     return None
+
+
+# create new function that generates html page 
+def generate_html_page(channel_key, reference_date):
+    # load FINAL_FORMATTED_last_run_summaries.json
+    with open(DISCORD_EXPORT_DIR_PATH_RAW + '/' + 'FINAL_FORMATTED_last_run_summaries.json') as f:
+        last_run_summaries = json.load(f)
+
+    # load html template
+    with open(HTML_TEMPLATE_PATH_RAW) as f:
+        template = f.readlines()
+        print(template)
+
+    # Find the line that contains 'var data = {};'
+    for i, line in enumerate(template):
+        print(line)
+        # if line contains var data 
+        if 'var data = {}' in line:
+            print('found var data')
+            # Replace this line with your new JSON string
+            template[i] = f'var data = {json.dumps(last_run_summaries)};\n'
+            break
+
+    # Write the result back to the HTML file
+    # TODO: need a way to name the bulletin whatever i want 
+    file_name = channel_key + '_' + reference_date + '_created_at_' + datetime.now().strftime("%Y-%m-%d-%H%M%S") + '.html'
+    with open(BULLETINS_PATH_RAW + '/' + file_name, 'w') as file:
+        file.writelines(template)
+
+    None
