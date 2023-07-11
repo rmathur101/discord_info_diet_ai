@@ -6,7 +6,7 @@ from transformers import GPT2TokenizerFast
 from datetime import datetime, date, timedelta
 from pathlib import Path
 import re
-from helpers import convert_messages_to_threads, get_token_count, format_messages, get_today_str, get_one_week_before_ref_date, check_file_exists, check_matching_file_exists_ignore_creation_date, gen_and_get_discord_export, group_messages, flatten_thread, merge_consecutive_threads_by_same_author, sort_messages_by_timestamp, format_single_message, prompt_summarize_conversation_thread, extract_emoji_info, prompt_consolidate_bullet_summaries, prompt_get_consolidate_mappings, aggregate_reactions, extract_objects_by_ids, prompt_reformat_summary, create_chat_completion_with_retry
+from helpers import convert_messages_to_threads, generate_html_page, get_token_count, format_messages, get_today_str, get_one_week_before_ref_date, check_file_exists, check_matching_file_exists_ignore_creation_date, gen_and_get_discord_export, group_messages, flatten_thread, merge_consecutive_threads_by_same_author, sort_messages_by_timestamp, format_single_message, prompt_summarize_conversation_thread, extract_emoji_info, prompt_consolidate_bullet_summaries, prompt_get_consolidate_mappings, aggregate_reactions, extract_objects_by_ids, prompt_reformat_summary, create_chat_completion_with_retry
 from constants import DISCORD_EXPORT_DIR_PATH, DISCORD_EXPORT_DIR_PATH_RAW, DISCORD_TOKEN_ID, CHANNEL_AND_THREAD_IDS, COMPLETIONS_MODEL, COMPLETIONS_API_PARAMS
 import openai
 load_dotenv()
@@ -14,9 +14,18 @@ load_dotenv()
 # top level arguments 
 arguments = {
     "file_type": 'json', # json or htmldark
-    "channel_key": 'lectures',
-    "reference_date": '2023-07-08', #TODO if you enter today's date it will run for the last week 
+    "channel_key": 'cabin_general_chat',
+    "reference_date": '2023-07-12', #TODO if you enter today's date it will run for the last week 
     "force_file_regen": False
+}
+
+should_run_parts = {
+    "generate_threads": False,
+    "generate_summaries": False,
+    "generate_summaries_insert_str": False,
+    "generate_consolidate_mappings": False, # NOTE: i've turned this off for now because it's not working great
+    "do_consolidation_and_reformat": False,
+    "generate_html_bulletin": True,
 }
 
 # my prompts 
@@ -38,59 +47,52 @@ file_name, file_type = gen_and_get_discord_export(
     arguments['force_file_regen']
 )
 
-# put this here if the last_run_summaries exist, if the file does exist, set to True because you want to exist ant not generates
-# FLAG SECTION
-if (False):
-    sys.exit()
+if should_run_parts['generate_threads']:
+    # read file as json if json, otherwise exit if html
+    if file_type == 'json':
+        with open(DISCORD_EXPORT_DIR_PATH_RAW + '/' + file_name)  as f:
+            discord_message_data = json.load(f)
 
-# read file as json if json, otherwise exit if html
-if file_type == 'json':
-    with open(DISCORD_EXPORT_DIR_PATH_RAW + '/' + file_name)  as f:
-        discord_message_data = json.load(f)
+            formatted_final = convert_messages_to_threads(discord_message_data)
 
-        formatted_final = convert_messages_to_threads(discord_message_data)
+            # Write the threads to a JSON file
+            threads_file_path = DISCORD_EXPORT_DIR_PATH_RAW + '/' + 'last_run_threads.json' 
+            with open(threads_file_path, 'w') as f:
+                json.dump(formatted_final, f, indent=4)
 
-        # Write the threads to a JSON file
-        threads_file_path = DISCORD_EXPORT_DIR_PATH_RAW + '/' + 'last_run_threads.json' 
-        with open(threads_file_path, 'w') as f:
-            json.dump(formatted_final, f, indent=4)
+if should_run_parts['generate_summaries']:
+    all_summaries = {} 
 
-# NOTE: probably won't use any of the below, just keeping it here for now so I can pull from it 
-# ----------------------------
+    for index, thread in enumerate(formatted_final):
 
-all_summaries = {} 
+        all_summaries[index] = {
+            "thread": thread,
+            "summary": None,
+            "reactions": extract_emoji_info(thread)
+        }
 
-for index, thread in enumerate(formatted_final):
+        insert_discord_msgs_str = ""
 
-    all_summaries[index] = {
-        "thread": thread,
-        "summary": None,
-        "reactions": extract_emoji_info(thread)
-    }
+        for message in thread:
+            insert_discord_msgs_str += json.dumps(message) + "\n"
 
-    insert_discord_msgs_str = ""
+        prompt = PROMPTS['summarize_conversation_thread'](insert_discord_msgs_str)
+        # print(f"\nCHANNEL KEY: {channel_key}\nPROMPT:\n{prompt}\n")
+        print(prompt)
 
-    for message in thread:
-        insert_discord_msgs_str += json.dumps(message) + "\n"
+        # call api
+        response = create_chat_completion_with_retry(prompt)
 
-    prompt = PROMPTS['summarize_conversation_thread'](insert_discord_msgs_str)
-    # print(f"\nCHANNEL KEY: {channel_key}\nPROMPT:\n{prompt}\n")
-    print(prompt)
+        all_summaries[index]['summary'] = response.choices[0].message.content
 
-    # call api
-    response = create_chat_completion_with_retry(prompt)
+        print(response)
 
-    all_summaries[index]['summary'] = response.choices[0].message.content
-
-    print(response)
-
-# output all_summaries to file
-with open(DISCORD_EXPORT_DIR_PATH_RAW + '/' + 'last_run_summaries.json', 'w') as f:
-    json.dump(all_summaries, f, indent=4)
+    # output all_summaries to file
+    with open(DISCORD_EXPORT_DIR_PATH_RAW + '/' + 'last_run_summaries.json', 'w') as f:
+        json.dump(all_summaries, f, indent=4)
 
 # load last run summaries if they exist and create a str with them all 
-# FLAG SECTION
-if (True):
+if (should_run_parts['generate_summaries_insert_str']):
     # load last_run_summaries.json if it exists
     last_run_summaries_file_path = DISCORD_EXPORT_DIR_PATH_RAW + '/' + 'last_run_summaries.json'
     last_run_summaries = None
@@ -111,9 +113,8 @@ if (True):
         last_run_summaries_str += f"ID: {key}\nReactions: {value['reactions']}\n{value['summary']}\n\n"
 
 # generate consolidate mappings json
-# FLAG SECTION
 # NOTE: i'm going to forgo the consolidation mappings for now, they haven't been working great and also been having issues with it not giving me back just json
-if (False):
+if (should_run_parts['generate_consolidate_mappings']):
     # create prompt
     prompt = PROMPTS["get_consolidate_mappings"](last_run_summaries_str)
     print(prompt)
@@ -131,8 +132,7 @@ if (False):
         json.dump(json.loads(response_content), f, indent=4)
 
 # load consolidate mappings and do consolidate and regernate the FINAL_SUMMARIES
-# FLAG SECTION
-if (True):
+if (should_run_parts['do_consolidation_and_reformat']):
     # load last_run_consolidate_mappings.json
     last_run_consolidate_mappings_file_path = DISCORD_EXPORT_DIR_PATH_RAW + '/' + 'last_run_consolidate_mappings.json'
     last_run_consolidate_mappings = None
@@ -206,4 +206,7 @@ if (True):
     with open(output_file_path, 'w') as f:
         json.dump(last_run_summaries, f, indent=4)
 
+# generate html page
+if (should_run_parts['generate_html_bulletin']):
+    generate_html_page(arguments['channel_key'], arguments['reference_date'])
 
